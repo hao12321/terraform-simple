@@ -55,21 +55,28 @@ jobs:
           echo "key = \"wherever your tfstate is stored at. eg. tf/dev/aws-settings.tfstate\"" >> backend.conf
           echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
           echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
-          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb')\"" > backend.conf
 
           cd ../../../network
           echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
           echo "key = \"wherever your tfstate is stored at. eg. tf/dev/aws-network.tfstate\"" >> backend.conf
           echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
           echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
-          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb')\"" > backend.conf
 
-          cd ../../resource
+          cd ../../resource1
           echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
-          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/resource.tfstate\"" >> backend.conf
+          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/resource1.tfstate\"" >> backend.conf
           echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
           echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
-          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb')\"" > backend.conf
+
+          cd ../../resource2
+          echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
+          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/resource2.tfstate\"" >> backend.conf
+          echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
+          echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb')\"" > backend.conf
 
       - name: Commit and Push Changes #so that everything runs automatically by referencing to the statefile created
         id: commit_push
@@ -94,4 +101,19 @@ jobs:
           terraform apply -auto-approve tfplan
 
       - name: Network Creation
-        id: 
+        id: network_creation
+        if: steps.role_creation.outcome == "success"
+        run: |
+          cd network
+          terraform init -backend-config=backend.conf -input=false
+          terraform plan -out=tfplan -input=false
+          terraform apply -auto-approve
+
+      - name: Resource creation
+        id: create_resource
+        run: |
+          cd ${{ github.event.inputs/directory }}
+          sed -i "s/\"owner\".*=.*\".*\"/\"owner\" = \"${{ github.event.inputs.owner }}\"/" variables.tf
+          terraform init -backend-config=backend.conf -input=false
+          terraform plan -out=tfplan -input=false
+          terraform apply -auto-approve
