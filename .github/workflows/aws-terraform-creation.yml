@@ -1,0 +1,97 @@
+name: CI
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs: #github actions runtime input variable name
+      directory: 
+        description: 'A set of directories to run with each containing different configurations'
+        required: true
+        default: 'default'
+      owner:
+        description: 'Name of the owner'
+        required: true
+        default: 'default@gmail.com'
+
+permissions:
+  id-token: write
+  contents: write
+  
+jobs:
+  terraform-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: AssumeRole function AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with: 
+          role-to-assume: arn:aws:iam::000000000000:role/xxx
+          aws-region: us-east-1 #example
+
+      - name: Assume admin/management role #role chaining
+        id: assume_admin_role
+        run: |
+          ROLE=$(aws sts assume-role --role-arn arn:aws:iam::000000000000:role/adminxxx --role-session-name GithubActionsSession)
+          echo "AWS_ACCESS_KEY_ID=$(echo $ROLE | jq -r '.Credentials.AccessKeyId')" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$(echo $ROLE | jq -r '.Credentials.SecretAccessKey')" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=$(echo $ROLE | jq -r '.Credentials.SessionToken')" >> $GITHUB_ENV
+
+      - name: AWS State Config Creation #s3 buckets and dynamodb table
+        id: state_creation
+        run: |
+          cd aws_settings/backend
+          terraform init -input=false
+          terraform plan -out=tfplan -input=false
+          terraform apply -auto-approve tfplan
+
+      - name: Output and Save the State into a .conf file #save the state file in different directories so each directory have their own state file saved automatically.
+        id: state_save
+        if: steps.backend_creation.outcome == "success"
+        run: |
+          cd aws_settings/backend
+          echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
+          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/aws-settings.tfstate\"" >> backend.conf
+          echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
+          echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+
+          cd ../../../network
+          echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
+          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/aws-network.tfstate\"" >> backend.conf
+          echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
+          echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+
+          cd ../../resource
+          echo "bucket = \"$(terraform output -json state_config | jq -r '.bucket')\"" > backend.conf
+          echo "key = \"wherever your tfstate is stored at. eg. tf/dev/resource.tfstate\"" >> backend.conf
+          echo "encrypt = \"$(terraform output -json backend_config | jq -r '.encrypt')\"" > backend.conf
+          echo "region = \"$(terraform output -json backend_config | jq -r '.region')\"" > backend.conf
+          echo "dynamodb_table = \"$(terraform output -json backend_config | jq -r '.dynamodb_table')\"" > backend.conf
+
+      - name: Commit and Push Changes #so that everything runs automatically by referencing to the statefile created
+        id: commit_push
+        if: steps.state_save.outcome == "success"
+        run: |
+          git config --local user.email "whatever@gmail.com"
+          git config --local user.name "whatever"
+          git add .
+          git commit -m "create config file"
+          git push
+
+      - name: Checkout Repository #to "refresh" the repo with the newly pushed files
+        uses: actions/checkout@v4
+
+      - name: Roles Creation
+        id: role_creation
+        if: steps.commit_push.outcome == "success"
+        run: |
+          cd aws_settings
+          terraform init -backend-config=backend/backend.conf -input=false
+          terraform plan -out=tfplan -input=false
+          terraform apply -auto-approve tfplan
+
+      - name: Network Creation
+        id: 
