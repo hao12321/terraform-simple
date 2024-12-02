@@ -1,2 +1,2 @@
 # terraform-simple
-simple terraform create and destroy resources
+simple github action to create and destroy resources with terraform
